@@ -9,10 +9,10 @@ specs: [
         alignment: 1,
         size: Known(4),
         steps: Unique([
-            Field(name: "Red", typename: "u8", args: {}, offset: Relative(0)),
-            Field(name: "Green", typename: "u8", args: {}, offset: Relative(0)),
-            Field(name: "Blue", typename: "u8", args: {}, offset: Relative(0)),
-            Field(name: "Reserved", typename: "u8", args: {}, offset: Relative(0))
+            Field(name: "Red", type: Builtin::u8, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Green", type: Builtin::u8, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Blue", type: Builtin::u8, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Reserved", type: Builtin::u8, args: {}, offset: Relative(Expr(...0...)))
         ])
     ),
     Spec(
@@ -27,10 +27,10 @@ specs: [
         size: Known(0),
         variables: {},
         steps: Unique([
-            Field(name: "Signature", typename: "[u8; 2]", args: {}, offset: Relative(0)),
-            Field(name: "Filesize", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "Reserved", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "DataOffset", typename: "u32", args: {}, offset: Relative(0))
+            Field(name: "Signature", type: List(Builtin::u8, Expr(...2...)), args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Filesize", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Reserved", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "DataOffset", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...)))
         ])
     ),
     Spec(
@@ -48,21 +48,23 @@ specs: [
             "num_colors": { value: Expr(...if BitCount < 2 {1} else {1 << BitCount}...) }
         },
         steps: Unique([
-            Field(name: "Size", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "Width", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "Height", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "Planes", typename: "u16", args: {}, offset: Relative(0)),
-            Field(name: "BitCount", typename: "u16", args: {}, offset: Relative(0)),
-            Field(name: "Compression", typename: "enum<u32>", args: {}, offset: Relative(0)),
-            Field(name: "ImageSize", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "XpixelsPerM", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "YpixelsPerM", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "ColorsUsed", typename: "u32", args: {}, offset: Relative(0)),
-            Field(name: "ColorsImportant", typename: "u32", args: {}, offset: Relative(0)),
+            Field(name: "Size", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Width", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Height", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "Planes", type: Builtin::u16, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "BitCount", type: Builtin::u16, args: {}, offset: Relative(Expr(...0...))),
+            EnumField(name: "Compression", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...)),
+                match_arms: ...
+            ),
+            Field(name: "ImageSize", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "XpixelsPerM", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "YpixelsPerM", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "ColorsUsed", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "ColorsImportant", type: Builtin::u32, args: {}, offset: Relative(Expr(...0...))),
             If(
                 condition: Expr(...BitCount <= 8...),
                 steps: Unique([
-                    Field(name: "ColorTable", typename: "[Color; num_colors]", args: {}, offset: Relative(0))
+                    Field(name: "ColorTable", type: List(Ref("Color"), Expr(...num_colors...)), args: {}, offset: Relative(Expr(...0...)))
                 ])
             )
         ])
@@ -70,7 +72,7 @@ specs: [
     Spec(
         name: "Rasterdata",
         uses: { "BI_RGB": "InfoHeader::Compression::BI_RGB" },
-        params: { "InfoHeader": "InfoHeader" },
+        params: { "InfoHeader": Ref("InfoHeader") },
         asserts: [
             Normal(condition: Expr(...InfoHeader.BitCount == 24 && InfoHeader.Compression == BI_RGB...), error: "Only Truecolor Uncompressed images supported for now")
         ],
@@ -78,7 +80,7 @@ specs: [
         size: Known(0),
         variables: {},
         steps: Unique([
-            Field(name: "PixelLines", typename: "[[Color; InfoHeader.Width];InfoHeader.Height]", args: {}, offset: Relative(0))
+            Field(name: "PixelLines", type: List(List(Ref("Color"), Expr(...InfoHeader.Width...)), Expr(...InfoHeader.Height...)), args: {}, offset: Relative(Expr(...0...)))
         ])
     ),
     Spec(
@@ -92,11 +94,11 @@ specs: [
         size: Known(0),
         variables: {},
         steps: Unique([
-            Field(name: "FileHeader", typename: "FileHeader", args: {}, offset: Relative(0)),
-            Field(name: "InfoHeader", typename: "InfoHeader", args: {}, offset: Relative(0)),
+            Field(name: "FileHeader", type: Ref("FileHeader"), args: {}, offset: Relative(Expr(...0...))),
+            Field(name: "InfoHeader", type: Ref("InfoHeader"), args: {}, offset: Relative(Expr(...0...))),
             Field(
                 name: "Rasterdata",
-                typename: "Rasterdata",
+                type: Ref("Rasterdata"),
                 args: { "InfoHeader": Expr(...InfoHeader...) },
                 offset: Absolute(Expr(...FileHeader.DataOffset...))
             )
