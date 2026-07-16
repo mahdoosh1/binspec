@@ -1,0 +1,11 @@
+spec Name1<Type1, Type2>(param1: Name2, param2: Name3) {
+    ...
+}
+
+impl Name {
+    pub fn read<T: ByteInterface, Type1, Type2>(data: &mut Lazy<T>, param1: &Name2, param2: &Name3) -> Result<Self> {
+        ...
+    }
+}
+
+Name() -> Name::read(data)?
