@@ -4,11 +4,11 @@ use binspec::{
     array,
     assert_spec,
     assert_spec_eq,
-    bail_validation,
+    spec_error,
     default_main,
+    errors::SResult,
     specs::{
         Spec,
-        SpecError,
         U8, U16, U32
     }
 };
@@ -22,13 +22,14 @@ pub struct Color {
 
 impl Spec for Color {
     type Params = ();
-    fn read<'a, S: ByteSource>(data: &mut View<'a, S>, _params: Self::Params) -> Result<Self, SpecError> {
-        let blue = U8::read(data,  ())?;
-        let green = U8::read(data,  ())?;
-        let red = U8::read(data,  ())?;
-        let reserved = U8::read(data, ())?;
+    fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
+        let mut view = View::from(data);
+        let blue = U8::read_from_view(&mut view,  ())?;
+        let green = U8::read_from_view(&mut view,  ())?;
+        let red = U8::read_from_view(&mut view,  ())?;
+        let reserved = U8::read_from_view(&mut view, ())?;
         assert_spec_eq!(reserved.value, 0);
-        Ok(Color {red, green, blue})
+        Ok((Color {red, green, blue}, view.cursor.offset))
     }
 }
 
@@ -40,14 +41,15 @@ pub struct FileHeader {
 
 impl Spec for FileHeader {
     type Params = ();
-    fn read<'a, S: ByteSource>(data: &mut View<'a, S>, _params: Self::Params) -> Result<Self, SpecError> {
-        let signature = data.consume_n(2)?;
+    fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
+        let mut view = View::from(data);
+        let signature = view.consume_n(2)?;
         assert_spec_eq!(signature, b"BM", "Not a BMP file");
-        let filesize = U32::LE(data)?;
-        let reserved = U32::LE(data)?;
+        let filesize = U32::LE(&mut view)?;
+        let reserved = U32::LE(&mut view)?;
         assert_spec_eq!(reserved.value, 0);
-        let data_offset = U32::LE(data)?;
-        Ok(FileHeader { filesize, data_offset })
+        let data_offset = U32::LE(&mut view)?;
+        Ok((FileHeader { filesize, data_offset }, view.cursor.offset))
     }
 }
 
@@ -76,42 +78,44 @@ pub enum InfoHeader_CompressionType {
 }
 impl Spec for InfoHeader_CompressionType {
     type Params = ();
-    fn read<'a, S: ByteSource>(data: &mut View<'a, S>, _params: Self::Params) -> Result<Self, SpecError> {
-        let spec = U32::LE(data)?;
-        Ok(match spec.value {
+    fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
+        let mut view = View::from(data);
+        let spec = U32::LE(&mut view)?;
+        Ok((match spec.value {
             0 => InfoHeader_CompressionType::BI_RGB,
             1 => InfoHeader_CompressionType::BI_RLE4,
             2 => InfoHeader_CompressionType::BI_RLE8,
-            rest => bail_validation!("Unsupported compression type: {rest}")
-        })
+            rest => return spec_error!("Unsupported compression type: {rest}")
+        }, view.cursor.offset))
     }
 }
 
 impl Spec for InfoHeader {
     type Params = ();
-    fn read<'a, S: ByteSource>(data: &mut View<'a, S>, _params: Self::Params) -> Result<Self, SpecError> {
-        let size = U32::LE(data)?;
+    fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
+        let mut view = View::from(data);
+        let size = U32::LE(&mut view)?;
         assert_spec!(size.value >= 36, "Size field is wrong");
-        let width = U32::LE(data)?;
-        let height = U32::LE(data)?;
-        let planes =U16::LE(data)?;
+        let width = U32::LE(&mut view)?;
+        let height = U32::LE(&mut view)?;
+        let planes =U16::LE(&mut view)?;
         assert_spec_eq!(planes.value, 1);
-        let bit_count = U16::LE(data)?;
+        let bit_count = U16::LE(&mut view)?;
         assert_spec_eq!(bit_count.value, 24, "non 24-bit BMP are not supported");
         assert_spec!(bit_count.value <= (usize::BITS as u16 - 1), "bits per pixel must be atleast {}", (usize::BITS as u16 - 1));
         let num_colors = if bit_count.value < 2 {1} else {(1 as usize) << bit_count.value};
         // enum defined above
-        let compression = InfoHeader_CompressionType::read(data, ())?;
-        let image_size = U32::LE(data)?;
+        let compression = InfoHeader_CompressionType::read_from_view(&mut view, ())?;
+        let image_size = U32::LE(&mut view)?;
         assert_spec!(image_size.value != 0 || compression == InfoHeader_CompressionType::BI_RGB, "The field image_size is zero but compression is used");
-        let x_pixels_per_m = U32::LE(data)?;
-        let y_pixels_per_m = U32::LE(data)?;
-        let colors_used = U32::LE(data)?;
-        let colors_important = U32::LE(data)?;
+        let x_pixels_per_m = U32::LE(&mut view)?;
+        let y_pixels_per_m = U32::LE(&mut view)?;
+        let colors_used = U32::LE(&mut view)?;
+        let colors_important = U32::LE(&mut view)?;
         let color_table = if bit_count.value <= 8 {
-            Some(array![Color::read(data, ()); num_colors]?)
+            Some(array![Color::read_from_view(&mut view, ()); num_colors]?)
         } else {None};
-        Ok(InfoHeader { size, width, height, bit_count, compression, image_size, x_pixels_per_m, y_pixels_per_m, colors_used, colors_important, color_table })
+        Ok((InfoHeader { size, width, height, bit_count, compression, image_size, x_pixels_per_m, y_pixels_per_m, colors_used, colors_important, color_table },view.cursor.offset))
     }
 }
 
@@ -138,13 +142,14 @@ impl From<&InfoHeader> for RasterDataParams {
 
 impl Spec for RasterData {
     type Params = RasterDataParams;
-    fn read<'b, S: ByteSource>(data: &mut View<'b, S>, params: Self::Params) -> Result<Self, SpecError> {
+    fn read_all<S: ByteSource>(data: &S, params: Self::Params) -> SResult<(Self, usize)> {
+        let mut view = View::from(data);
         assert_spec!(
             params.bit_count.value == 24 && params.compression == InfoHeader_CompressionType::BI_RGB,
             "Only Truecolor Uncompressed images supported for now"
         );
-        let pixel_lines = array![array![Color::read(data, ()); params.width.value as usize]; params.height.value as usize]?;
-        Ok(RasterData { pixel_lines })
+        let pixel_lines = array![array![Color::read_from_view(&mut view, ()); params.width.value as usize]; params.height.value as usize]?;
+        Ok((RasterData { pixel_lines },view.cursor.offset))
     }
 }
 
@@ -157,11 +162,12 @@ pub struct File {
 
 impl Spec for File {
     type Params = ();
-    fn read<'b, S: ByteSource>(data: &mut View<'b, S>, _params: Self::Params) -> Result<Self, SpecError> {
-        let file_header = FileHeader::read(data, ())?;
-        let info_header = InfoHeader::read(data, ())?;
-        let raster_data = RasterData::read_offset(data, file_header.data_offset.value as usize, RasterDataParams::from(&info_header))?;
-        Ok(File { file_header, info_header, raster_data })
+    fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
+        let mut view = View::from(data);
+        let file_header = FileHeader::read_from_view(&mut view, ())?;
+        let info_header = InfoHeader::read_from_view(&mut view, ())?;
+        let raster_data = RasterData::read_at(data, file_header.data_offset.value as usize, RasterDataParams::from(&info_header))?;
+        Ok((File { file_header, info_header, raster_data }, view.cursor.offset))
     }
 }
 

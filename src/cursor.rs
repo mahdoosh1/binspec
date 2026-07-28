@@ -23,10 +23,7 @@ impl Cursor {
         if other.end() > self.size {
             None
         } else {
-            Some(Cursor {
-                offset: self.offset + other.offset,
-                size: other.size,
-            })
+            Some(other + self.offset)
         }
     }
 

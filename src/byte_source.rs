@@ -1,25 +1,57 @@
 
 use crate::errors::SourceError;
+use crate::view::View;
+use crate::cursor::Cursor;
 
-pub trait ByteSource {
+pub trait ByteSource: Clone {
     fn size(&self) -> usize;
-    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), SourceError>;
+    fn _unsafe_peek(&self, cursor: Cursor) -> &[u8];
+    fn peek(&self, cursor: Cursor) -> Result<&[u8], SourceError> {
+        self.check(cursor)?;
+        Ok(self._unsafe_peek(cursor))
+    }
+    fn peek_n(&self, size: usize) -> Result<&[u8], SourceError> {
+        self.peek(Cursor::fromstart(size))
+    }
+    fn check(&self, cursor: Cursor) -> Result<(), SourceError> {
+        if cursor.end() < self.size() {
+            Ok(())
+        } else {
+            Err(SourceError::InsufficientData {
+                cursor,
+                view: Cursor::fromstart(self.size())
+            })
+        }
+    }
 }
 
 impl ByteSource for Vec<u8> {
     fn size(&self) -> usize {
         self.len()
     }
-    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<(), SourceError> {
-        let end = offset + buf.len();
-        if end > self.len() {
-            return Err(SourceError::InsufficientData {
-                requested_offset: offset,
-                requested_size: buf.len(),
-                total_size: self.len(),
-            });
+
+    fn _unsafe_peek(&self, cursor: Cursor) -> &[u8] {
+        &self[cursor.offset..cursor.end()]
+    }
+}
+
+impl<'a, S: ByteSource> ByteSource for View<'a, S> {
+    fn size(&self) -> usize {
+        self.cursor.size
+    }
+
+    fn _unsafe_peek(&self, cursor: Cursor) -> &[u8] {
+        self.source._unsafe_peek(cursor + self.cursor.offset)
+    }
+
+    fn check(&self, cursor: Cursor) -> Result<(), SourceError> {
+        if cursor.end() < self.size() {
+            Ok(())
+        } else {
+            Err(SourceError::InsufficientData {
+                cursor,
+                view: self.cursor
+            })
         }
-        buf.copy_from_slice(&self[offset..end]);
-        Ok(())
     }
 }
