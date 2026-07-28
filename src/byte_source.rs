@@ -40,7 +40,7 @@ impl<'a, S: ByteSource> ByteSource for View<'a, S> {
         self.cursor.size
     }
 
-    fn _unsafe_peek(&self, cursor: Cursor) -> &[u8] {
+    fn _unsafe_peek(&self, cursor: Cursor) -> &'a [u8] {
         self.source._unsafe_peek(cursor + self.cursor.offset)
     }
 

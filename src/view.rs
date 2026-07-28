@@ -19,7 +19,6 @@ impl<'a, S: ByteSource> From<&'a S> for View<'a, S> {
     }
 }
 
-
 impl<'a, S: ByteSource> View<'a, S> {
     pub fn skip(&mut self, cursor: Cursor) -> VResult<()> {
         self.check(cursor)?;
@@ -28,9 +27,9 @@ impl<'a, S: ByteSource> View<'a, S> {
         Ok(())
     }
 
-    pub fn consume(&mut self, cursor: Cursor) -> VResult<&[u8]> {
+    pub fn consume(&mut self, cursor: Cursor) -> VResult<&'a [u8]> {
         self.check(cursor)?;
-        let output = self.source.peek(cursor + self.cursor.offset);
+        let output: Result<&'a [u8], crate::errors::SourceError> = self.source.peek(cursor + self.cursor.offset);
         self.skip(cursor)?;
         output
     }
@@ -39,7 +38,7 @@ impl<'a, S: ByteSource> View<'a, S> {
         self.skip(Cursor::fromstart(size))
     }
 
-    pub fn consume_n(&mut self, size: usize) -> VResult<&[u8]> {
+    pub fn consume_n(&mut self, size: usize) -> VResult<&'a [u8]> {
         self.consume(Cursor::fromstart(size))
     }
 

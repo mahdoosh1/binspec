@@ -85,7 +85,7 @@ impl Spec for InfoHeader_CompressionType {
             0 => InfoHeader_CompressionType::BI_RGB,
             1 => InfoHeader_CompressionType::BI_RLE4,
             2 => InfoHeader_CompressionType::BI_RLE8,
-            rest => return spec_error!("Unsupported compression type: {rest}")
+            rest => return Err(spec_error!(view.cursor.offset; "Unsupported compression type: {rest}"))
         }, view.cursor.offset))
     }
 }
