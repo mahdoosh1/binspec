@@ -22,19 +22,12 @@ impl Spec for TarString {
     type Params = usize;                     // size of the whole field (string + terminator)
     fn read_all<S: ByteSource>(data: &S, size: Self::Params) -> SResult<(Self, usize)> {
         let mut view = View::from(data); // at 0
-        // string part
-        let string_bytes = view.consume_n(size - 1)?; // at size - 1
-        // terminator
-        let end = U8::read_from_view(&mut view, ())?; // at size
-        assert_spec!(end.value == 0 || end.value == b' ', "Tar string terminator invalid");
-
-        // for i in string { if i != 0 && i != b' ' { break string } }
-        // -> Some(string) if any byte is neither NUL nor space, otherwise None
-        let text = if string_bytes.iter().any(|&b| b != 0 && b != b' ') {
-            Some(get_string(string_bytes))
-        } else {
-            None
-        };
+        let field_bytes = view.consume_n(size)?;
+        let end = field_bytes.iter().position(|&b| b == 0 || b == b' ').unwrap_or(size);
+        let trimmed = &field_bytes[..end];
+        let text = if !trimmed.is_empty() {
+            Some(get_string(trimmed))
+        } else { None };
         Ok((TarString { text }, view.offset())) // view.offset() = size
     }
 }
@@ -174,7 +167,7 @@ pub struct Header {
     pub file_type: Header_FileType
 ,
     pub name_of_linked_file: Option<TryString>,
-    pub filename: String,
+    pub filename: TryString,
 }
 
 impl Spec for Header {
@@ -183,9 +176,7 @@ impl Spec for Header {
         let mut all = View::from(data); // at 0
         let file_path_and_name = TarString::read_from_view(&mut all, 100)?
             .text
-            .ok_or(spec_error!(all.offset(); "file_path_and_name is required"))?
-            .left()
-            .ok_or(spec_error!(all.offset(); "file_path_and_name must be a valid string"))?; // at 100 (calculated from TarString)
+            .ok_or(spec_error!(all.offset(); "file_path_and_name is required"))?; // at 100 (calculated from TarString)
         let file_mode = Oct::read_from_view(&mut all, None)?.value; // at 108 (calculated from Oct)
         let uid = Oct::read_from_view(&mut all, None)?.value; // at 116 (calculated from Oct)
         let gid = Oct::read_from_view(&mut all, None)?.value; // at 124 (calculated from Oct)
@@ -204,17 +195,17 @@ impl Spec for Header {
         // Fallback reads [U8;255] -> use array! macro.
         let unused = try_spec(
             |view| UStar::read_from_view(view, ()), // at 512 (calculated from UStar)
-            |view| array![U8::read_from_view(view, ()); 255], // at 512
+            |view| array![U8 = view; 255], // at 512
             &mut all
         ); // at 512 in both
 
         // filename calculation
         let filename = match unused {
             either::Either::Left(ustar) => {
-                ustar.filename_prefix + &file_path_and_name
+                file_path_and_name.map_left(|suffix_str| format!("{}{}", ustar.filename_prefix, suffix_str))
             },
-            either::Either::Right((array, _ustar_error)) => {
-                array?;
+            either::Either::Right((result, _ustar_error)) => {
+                result?;
                 file_path_and_name
             }
         };

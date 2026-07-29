@@ -10,3 +10,9 @@ pub fn get_string(data: &[u8]) -> TryString {
         Err(err) => Right((Vec::from(data), err))
     }
 }
+pub fn get_slice(data: &TryString) -> &[u8] {
+    match data {
+        Left(string) => string.as_bytes(),
+        Right((vec, _error)) => &vec,
+    }
+}

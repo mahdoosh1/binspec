@@ -1,10 +1,10 @@
 #[macro_export]
 macro_rules! array {
-    ($name:path = $data:ident ; $len:expr) => {{
-        array!($name {()} = $data; $len)
+    ($name:path = $view:expr ; $len:expr) => {{
+        array!($name {()} = $view; $len)
     }};
-    ($name:path { $($params:expr),* } = $data:ident ; $len:expr) => {{
-        array!(<$name>::read($data, ($($params),*)); $len)
+    ($name:path { $($params:expr),* } = $view:expr ; $len:expr) => {{
+        array!(<$name>::read_from_view($view, ($($params),*)); $len)
     }};
     ($value:expr ; $len:expr) => {{
         let len: usize = $len;
