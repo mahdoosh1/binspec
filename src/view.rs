@@ -1,6 +1,4 @@
 
-use std::cell::RefCell;
-
 use crate::byte_source::ByteSource;
 use crate::cursor::Cursor;
 use crate::errors::VResult;
@@ -8,7 +6,7 @@ use crate::errors::VResult;
 #[derive(Debug, Clone)]
 pub struct View<'a, S: ByteSource> {
     pub source: &'a S,
-    pub cursor: RefCell<Cursor>,
+    pub cursor: Cursor, // now a plain field
 }
 
 impl<'a, S: ByteSource> From<&'a S> for View<'a, S> {
@@ -16,34 +14,35 @@ impl<'a, S: ByteSource> From<&'a S> for View<'a, S> {
         let size = source.size();
         View {
             source,
-            cursor: RefCell::new(Cursor::fromstart(size)),
+            cursor: Cursor::fromstart(size),
         }
     }
 }
 
 impl<'a, S: ByteSource> View<'a, S> {
     pub fn offset(&self) -> usize {
-        self.cursor.borrow().offset
+        self.cursor.offset
     }
-    pub fn skip(&self, cursor: Cursor) -> VResult<()> {
+
+    pub fn skip(&mut self, cursor: Cursor) -> VResult<()> {
         self.check(cursor)?;
-        self.cursor.borrow_mut().offset += cursor.end();
-        self.cursor.borrow_mut().size -= cursor.end();
+        self.cursor.offset += cursor.end();
+        self.cursor.size -= cursor.end();
         Ok(())
     }
 
-    pub fn consume(&self, cursor: Cursor) -> VResult<&'a [u8]> {
+    pub fn consume(&mut self, cursor: Cursor) -> VResult<&'a [u8]> {
         self.check(cursor)?;
-        let output: Result<&'a [u8], crate::errors::SourceError> = self.source.peek(cursor + self.offset());
+        let output = self.source.peek(cursor + self.offset())?;
         self.skip(cursor)?;
-        output
+        Ok(output)
     }
 
-    pub fn skip_n(&self, size: usize) -> VResult<()> {
+    pub fn skip_n(&mut self, size: usize) -> VResult<()> {
         self.skip(Cursor::fromstart(size))
     }
 
-    pub fn consume_n(&self, size: usize) -> VResult<&'a [u8]> {
+    pub fn consume_n(&mut self, size: usize) -> VResult<&'a [u8]> {
         self.consume(Cursor::fromstart(size))
     }
 
@@ -52,7 +51,7 @@ impl<'a, S: ByteSource> View<'a, S> {
         let abs_cursor = cursor + self.offset();
         Ok(View {
             source: self.source,
-            cursor: RefCell::new(abs_cursor),
+            cursor: abs_cursor,
         })
     }
 
@@ -60,13 +59,13 @@ impl<'a, S: ByteSource> View<'a, S> {
         self.subview(Cursor::fromstart(size))
     }
 
-    pub fn consume_subview(&self, rel_cursor: Cursor) -> VResult<Self> {
-        let output = self.subview(rel_cursor);
+    pub fn consume_subview(&mut self, rel_cursor: Cursor) -> VResult<Self> {
+        let output = self.subview(rel_cursor)?;
         self.skip(rel_cursor)?;
-        output
+        Ok(output)
     }
 
-    pub fn consume_subview_n(&self, size: usize) -> VResult<Self> {
+    pub fn consume_subview_n(&mut self, size: usize) -> VResult<Self> {
         self.consume_subview(Cursor::fromstart(size))
     }
 }

@@ -172,5 +172,5 @@ impl Spec for File {
 }
 
 fn main() {
-    default_main();
+    default_main::<File>();
 }

@@ -45,7 +45,7 @@ impl<'a, S: ByteSource> ByteSource for View<'a, S> {
     }
 
     fn check(&self, cursor: Cursor) -> Result<(), SourceError> {
-        if cursor.end() < self.size() {
+        if cursor.end() <= self.size() {
             Ok(())
         } else {
             Err(SourceError::InsufficientData {

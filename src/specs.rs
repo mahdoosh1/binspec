@@ -1,9 +1,10 @@
 
-use crate::assert_spec_eq;
+use either::Either::{Left, Right};
+
 use crate::byte_source::ByteSource;
 use crate::errors::SResult;
+use crate::trys::TryResult;
 use crate::view::View;
-use either;
 
 pub trait Spec: Sized + std::fmt::Debug {
     type Params: Copy;
@@ -27,10 +28,7 @@ pub trait Spec: Sized + std::fmt::Debug {
         data: &S,
         params: Self::Params,
     ) -> SResult<Self> {
-        let all = Self::read_all(data, params)?;
-        let size = Self::size(data, params)?;
-        assert_spec_eq!(all.1, size);
-        Ok(all.0)
+        Ok(Self::read_all(data, params)?.0)
     }
 
     fn read_all_at<S: ByteSource>(
@@ -62,7 +60,6 @@ pub trait Spec: Sized + std::fmt::Debug {
         view.skip_n(offset)?;
         Self::read(&view, params)
     }
-
 }
 
 impl<T: Spec> Spec for Vec<T> {
@@ -102,14 +99,14 @@ macro_rules! impl_num_spec {
             pub fn LE<'a, S: ByteSource>(
                 data: &mut View<'a, S>
             ) -> SResult<Self> {
-                Self::read(data, Endianness::Little)
+                Ok(Self::read_all(data, Endianness::Little)?.0)
             }
             
             #[allow(non_snake_case)]
             pub fn BE<'a, S: ByteSource>(
                 data: &mut View<'a, S>
             ) -> SResult<Self> {
-                Self::read(data, Endianness::Big)
+                Ok(Self::read_all(data, Endianness::Big)?.0)
             }
         }
 
@@ -169,9 +166,8 @@ impl Spec for U8 {
          data: &S,
         _params: Self::Params,
     ) -> SResult<(Self, usize)> {
-        let arr: [u8; 1] = data.peek_n(1)?.try_into().unwrap();
         Ok((U8 {
-            value: u8::from_be_bytes(arr),
+            value: data.peek_n(1)?[0],
         }, 1))
     }
 }
@@ -188,9 +184,8 @@ impl Spec for I8 {
          data: &S,
         _params: Self::Params,
     ) -> SResult<(Self, usize)> {
-        let arr: [u8; 1] = data.peek_n(1)?.try_into().unwrap();
         Ok((I8 {
-            value: i8::from_be_bytes(arr),
+            value: data.peek_n(1)?[0] as i8,
         }, 1))
     }
 }
@@ -202,9 +197,9 @@ impl_num_spec!(I32, i32, 4, i32::from_be_bytes, i32::from_le_bytes);
 impl_num_spec!(U64, u64, 8, u64::from_be_bytes, u64::from_le_bytes);
 impl_num_spec!(I64, i64, 8, i64::from_be_bytes, i64::from_le_bytes);
 
-pub type Try<L, R, E> = either::Either<L, (Result<R, E>, E)>;
+
 #[allow(type_alias_bounds)]
-pub type TrySpec<L: Spec, R: Spec> = Try<L, R, crate::errors::SpecError>;
+pub type TrySpec<L: Spec, R: Spec> = TryResult<L, R, crate::errors::SpecError>;
 
 pub fn try_spec<'a, S: ByteSource, L: Spec, R: Spec>(
     l: impl FnOnce(&mut View<'a, S>) -> SResult<L>,
@@ -215,10 +210,10 @@ pub fn try_spec<'a, S: ByteSource, L: Spec, R: Spec>(
     match l(&mut left_data) {
         Ok(left) => {
             data.cursor = left_data.cursor;
-            either::Either::Left(left)
+            Left(left)
         },
         Err(error) => {
-            either::Either::Right((r(data),error))
+            Right((r(data),error))
         }
     }
 }

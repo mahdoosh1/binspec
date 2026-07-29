@@ -1,8 +1,9 @@
 use binspec::{
     ByteSource, View, array, assert_spec, assert_spec_eq, default_main, errors::SResult, spec_error, specs::{
         Spec, U8, try_spec
-    }
+    }, trys::{TryString, get_string}
 };
+use either::Either;
 
 fn parse_int(bytes: &[u8], radix: u32) -> Option<u64> {
     let s = std::str::from_utf8(bytes).ok()?;
@@ -14,7 +15,7 @@ fn parse_int(bytes: &[u8], radix: u32) -> Option<u64> {
 
 #[derive(Debug)]
 pub struct TarString {
-    pub text: Option<Vec<u8>>
+    pub text: Option<TryString>
 }
 
 impl Spec for TarString {
@@ -30,12 +31,11 @@ impl Spec for TarString {
         // for i in string { if i != 0 && i != b' ' { break string } }
         // -> Some(string) if any byte is neither NUL nor space, otherwise None
         let text = if string_bytes.iter().any(|&b| b != 0 && b != b' ') {
-            Some(string_bytes.into())
+            Some(get_string(string_bytes))
         } else {
             None
         };
-
-        Ok((TarString { text }, view.cursor.offset)) // view.cursor.offset = size
+        Ok((TarString { text }, view.offset())) // view.offset() = size
     }
 }
 
@@ -47,16 +47,24 @@ pub struct Oct {
     pub value: Option<u64>
 }
 
-impl Spec for Oct {
+impl<'a> Spec for Oct {
     type Params = Option<usize>;    // defaults to 8 when not specified
     fn read_all<S: ByteSource>(data: &S, size: Self::Params) -> SResult<(Self, usize)> {
         let mut view = View::from(data); // at 0
         let size = size.unwrap_or(8);
 
         let digits = TarString::read_from_view(&mut view, size)?.text; // at size (calculated from TarString)
-        let value = digits.and_then(|digits| parse_int(digits.as_ref(), 8));
+        let value = match digits {
+            Some(a) => {
+                match a {
+                    Either::Left(text) => {parse_int(text.as_bytes(), 8)}
+                    Either::Right((vec, _)) => {parse_int(&vec, 8)}
+                }
+            }
+            None => None
+        };
 
-        Ok((Oct { value }, view.cursor.offset)) // view.cursor.offset = size
+        Ok((Oct { value }, view.offset())) // view.offset() = size
     }
 }
 
@@ -77,7 +85,7 @@ pub enum Header_FileType {
     VendorSpecificExtention(U8),
 }
 
-impl Spec for Header_FileType {
+impl<'a> Spec for Header_FileType {
     type Params = ();
     fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
         let mut view = View::from(data); // at 0
@@ -94,8 +102,8 @@ impl Spec for Header_FileType {
             b'g' => Header_FileType::GlobalExtendedHeaderWithMetadata,
             b'x' => Header_FileType::ExtendedHeaderWithMetadataForTheNextFileInTheArchive,
             b'A'..=b'Z' => Header_FileType::VendorSpecificExtention(byte),
-            rest => return Err(spec_error!(view.cursor.offset; "Reserved filetype used: {rest}")),
-        }, view.cursor.offset)) // view.cursor.offset = 1
+            rest => return Err(spec_error!(view.offset(); "Reserved filetype used: {rest}")),
+        }, view.offset())) // view.offset() = 1
     }
 }
 
@@ -104,13 +112,13 @@ impl Spec for Header_FileType {
 
 #[derive(Debug)]
 pub struct UStar {
-    pub ustar_indicator: Vec<u8>,
-    pub ustar_version: Vec<u8>,
-    pub owner_user_name: Option<Vec<u8>>,
-    pub owner_group_name: Option<Vec<u8>>,
+    pub ustar_indicator: String,
+    pub ustar_version: String,
+    pub owner_user_name: Option<TryString>,
+    pub owner_group_name: Option<TryString>,
     pub device_major_number: Option<u64>,
     pub device_minor_number: Option<u64>,
-    pub filename_prefix: Vec<u8>,
+    pub filename_prefix: String,
     pub unspecified: Vec<u8>
 }
 
@@ -118,17 +126,29 @@ impl Spec for UStar {
     type Params = ();
     fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
         let mut view = View::from(data); // at 0
-        let ustar_indicator = TarString::read_from_view(&mut view, 6)?.text.ok_or(spec_error!(view.cursor.offset; "ustar_indicator is required"))?; // at 6 (calculated from TarString)
-        assert_spec_eq!(&ustar_indicator, b"ustar");
-        let ustar_version = TarString::read_from_view(&mut view, 2)?.text.ok_or(spec_error!(view.cursor.offset; "ustar_version is required"))?; // at 8 (calculated from TarString)
-        assert_spec_eq!(&ustar_version, b"00","This file uses a newer version of UStar that is not yet supported");
+        let ustar_indicator = TarString::read_from_view(&mut view, 6)?
+            .text
+            .ok_or(spec_error!(view.offset(); "ustar_indicator is required"))?
+            .left()
+            .ok_or(spec_error!(view.offset(); "ustar_indicator must be a valid string"))?; // at 6 (calculated from TarString)
+        assert_spec_eq!(ustar_indicator.as_bytes(), b"ustar");
+        let ustar_version = TarString::read_from_view(&mut view, 2)?
+            .text
+            .ok_or(spec_error!(view.offset(); "ustar_version is required"))?
+            .left()
+            .ok_or(spec_error!(view.offset(); "ustar_version must be a valid string"))?; // at 8 (calculated from TarString)
+        assert_spec_eq!(ustar_version.as_bytes(), b"00","This file uses a newer version of UStar that is not yet supported");
         let owner_user_name = TarString::read_from_view(&mut view, 32)?.text; // at 40 (calculated from TarString)
         let owner_group_name = TarString::read_from_view(&mut view, 32)?.text; // at 72 (calculated from TarString)
         let device_major_number = Oct::read_from_view(&mut view, None)?.value; // at 80 (calculated from Oct)
         let device_minor_number = Oct::read_from_view(&mut view, None)?.value; // at 88 (calculated from Oct)
-        let filename_prefix = TarString::read_from_view(&mut view, 155)?.text.ok_or(spec_error!(view.cursor.offset; "filename_prefix is required"))?; // at 243 (calculated from TarString)
+        let filename_prefix = TarString::read_from_view(&mut view, 155)?
+            .text
+            .ok_or(spec_error!(view.offset(); "filename_prefix is required"))?
+            .left()
+            .ok_or(spec_error!(view.offset(); "filename_prefix must be a valid string"))?; // at 243 (calculated from TarString)
         // unspecified [U8;12] – consume and ignore
-        let unspecified = view.consume_n(12)?.into(); // at 255
+        let unspecified = Vec::from(view.consume_n(12)?); // at 255
 
         Ok((UStar {
             ustar_indicator,
@@ -139,7 +159,7 @@ impl Spec for UStar {
             device_minor_number,
             filename_prefix,
             unspecified
-        }, view.cursor.offset)) // view.cursor.offset = 255
+        }, view.offset())) // view.offset() = 255
     }
 }
 
@@ -153,19 +173,25 @@ pub struct Header {
     pub check_sum: Option<u64>,
     pub file_type: Header_FileType
 ,
-    pub name_of_linked_file: Option<Vec<u8>>,
-    pub filename: Vec<u8>,
+    pub name_of_linked_file: Option<TryString>,
+    pub filename: String,
 }
 
 impl Spec for Header {
     type Params = ();
     fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
         let mut all = View::from(data); // at 0
-        let file_path_and_name = TarString::read_from_view(&mut all, 100)?.text.ok_or(spec_error!(all.cursor.offset; "file_path_and_name is required"))?; // at 100 (calculated from TarString)
+        let file_path_and_name = TarString::read_from_view(&mut all, 100)?
+            .text
+            .ok_or(spec_error!(all.offset(); "file_path_and_name is required"))?
+            .left()
+            .ok_or(spec_error!(all.offset(); "file_path_and_name must be a valid string"))?; // at 100 (calculated from TarString)
         let file_mode = Oct::read_from_view(&mut all, None)?.value; // at 108 (calculated from Oct)
         let uid = Oct::read_from_view(&mut all, None)?.value; // at 116 (calculated from Oct)
         let gid = Oct::read_from_view(&mut all, None)?.value; // at 124 (calculated from Oct)
-        let file_size = Oct::read_from_view(&mut all, Some(12))?.value.ok_or(spec_error!(all.cursor.offset; "file_size is required"))? as usize; // at 136 (calculated from Oct)
+        let file_size = Oct::read_from_view(&mut all, Some(12))?
+            .value
+            .ok_or(spec_error!(all.offset(); "file_size is required"))? as usize; // at 136 (calculated from Oct)
         let last_modified = Oct::read_from_view(&mut all, Some(12))?.value; // at 148 (calculated from Oct)
         let check_sum = Oct::read_from_view(&mut all, None)?.value; // at 156 (calculated from Oct)
 
@@ -185,7 +211,7 @@ impl Spec for Header {
         // filename calculation
         let filename = match unused {
             either::Either::Left(ustar) => {
-                ustar.filename_prefix.iter().chain(&file_path_and_name).cloned().collect()
+                ustar.filename_prefix + &file_path_and_name
             },
             either::Either::Right((array, _ustar_error)) => {
                 array?;
@@ -193,8 +219,15 @@ impl Spec for Header {
             }
         };
         if let Some(checksum_value) = check_sum {
-            // sum = sum_of_all - sum_of_checksum + 8 * 32
-            let actual_sum: u32 = data.peek_n(512)?.iter().map(|&b| b as u32).sum();
+            let header_bytes = data.peek_n(512)?; // &[u8]
+            let total_sum: u32 = header_bytes.iter().map(|&b| b as u32).sum();
+
+            // Sum the actual checksum field bytes (positions 148..156)
+            let checksum_bytes_sum: u32 = header_bytes[148..156].iter().map(|&b| b as u32).sum();
+
+            // Replace the checksum field bytes with spaces (8 * 32)
+            let actual_sum = total_sum - checksum_bytes_sum + 8 * 32;
+
             assert_spec_eq!(
                 actual_sum as u64,
                 checksum_value,
@@ -212,7 +245,7 @@ impl Spec for Header {
             file_type,
             name_of_linked_file,
             filename,
-        }, all.cursor.offset)) // all.cursor.offset = 512
+        }, all.offset())) // all.offset() = 512
     }
 }
 
@@ -228,10 +261,10 @@ pub struct TarEntry {
 impl Spec for TarEntry {
     type Params = ();
     fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
-        let mut view = View::from(data); // at 0
-        let header = Header::read_from_view(&mut view, ())?; // at 512 (calculated from Header)
+        let mut view = View::from(data);
+        let header = Header::read_from_view(&mut view, ())?; // size = 512 (calculated from Header)
         let file_data = view.consume_n(header.file_size)?.into(); // at 512 + header.file_size
-        Ok((TarEntry { header, file_data }, view.cursor.offset)) // view.cursor.offset = 512 + header.file_size
+        Ok((TarEntry { header, file_data }, view.offset())) // view.offset() = 512 + header.file_size
     }
 }
 
@@ -239,11 +272,11 @@ impl Spec for TarEntry {
 // TarFile (the whole archive)
 
 #[derive(Debug)]
-pub struct TarFile {
+pub struct File {
     pub entries: Vec<TarEntry>,
 }
 
-impl Spec for TarFile {
+impl Spec for File {
     type Params = ();
     fn read_all<S: ByteSource>(data: &S, _params: Self::Params) -> SResult<(Self, usize)> {
         let mut view = View::from(data); // at 0
@@ -261,7 +294,8 @@ impl Spec for TarFile {
             view.consume_n((512 - modulo) % 512)?; // at 512 + entry.header.file_size (512 - entry.header.file_size) % 512
             entries.push(entry);
         }
-        Ok((TarFile { entries }, view.cursor.offset)) // view.cursor.offset = sum(512 + entry.header.file_size (512 - entry.header.file_size) % 512) for each
+        let offset = view.offset();
+        Ok((File { entries }, offset)) // view.offset() = sum(512 + entry.header.file_size (512 - entry.header.file_size) % 512) for each
     }
 }
 
@@ -269,5 +303,5 @@ impl Spec for TarFile {
 // entry point
 
 fn main() {
-    default_main();
+    default_main::<File>();
 }
