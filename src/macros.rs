@@ -109,3 +109,25 @@ macro_rules! spec_error {
         )
     };
 }
+
+#[macro_export]
+macro_rules! create_spec {
+    // default
+    ($name:ident ($data:ident, $params:ident : $params_t:ty) $code:block) => {
+        impl $crate::specs::Spec for $name {
+            type Params = $params_t;
+            fn read_all<S: ByteSource>($data: &S, $params: Self::Params) -> SResult<(Self, usize)> {
+                $code
+            }
+        }
+    };
+    // multiple params
+    ($name:ident ($data:ident $(, $params:ident : $params_t:ty)* $(,)?) $code:block) => {
+        impl $crate::specs::Spec for $name {
+            type Params = ($( $params_t, )*);
+            fn read_all<S: ByteSource>($data: &S, ($( $params, )*): Self::Params) -> SResult<(Self, usize)> {
+                $code
+            }
+        }
+    };
+}

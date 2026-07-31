@@ -3,10 +3,8 @@ spec TarString(size: USIZE) {
     // [type; integer]
     // [|| TypeThatHasParameters(2); 5] is allowed
     // if rust has something that calls a function n times and returns array of return values, that should be used instead of this syntax
-    hide let string = [U8; size-1]; // if rust has string type for ascii, that type should be used instead of arrays
+    hide let string = [U8; size]; // if rust has string type for ascii, that type should be used instead of arrays
     // call a type means -> read and return value of that type
-    hide let end = U8();
-    assert!(end == 0 || end == b' '); // not rust's assert
     hide let end = string.find(0).or(string.find(b' '));
     let text = end.and_then(|index| string[..index]);
 }

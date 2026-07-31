@@ -1,4 +1,4 @@
-use either::{Left, Right, Either};
+pub use either::{Left, Right, Either};
 
 pub type Try<L, R, E> = Either<L, (R, E)>;
 pub type TryResult<L, R, E> = Try<L, Result<R, E>, E>;
