@@ -1,12 +1,2 @@
-plan:
-1. normal types (integer, float, etc...)
-2. offsets, sizes and endianess
-3. repr, tests (like checksum), dynamic offset/size
-4. full decoder (i.e. public API).
-
-normal types -> normal types/structs
-offsets and sizes -> normal types/structs (sized)
-repr -> ???
-tests -> ???
-dynamic offset/size -> enum types? union alternatives?
-API -> not yet
+This is a WIP project for defining and decoding binary formats using Rust's macro system.
+Please do not use this project until a full release (1.0.0) comes out.
